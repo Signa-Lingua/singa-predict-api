@@ -37,7 +37,7 @@ async def predict(video: UploadFile = File(
             content={
                 "error": False, 
                 "message": "Prediction successful!", 
-                "data": str(result)}, 
+                "data": result}, 
             status_code=200)
     except Exception as e:
         return JSONResponse(

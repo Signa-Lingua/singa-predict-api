@@ -46,7 +46,7 @@ class LoadModel():
                 "Sign",
                 "Done",
             ]
-        )
+        )[:6]
 
 
         self.colors = [
@@ -81,41 +81,50 @@ class LoadModel():
         model = Sequential()
 
         # data normalization
-        model.add(BatchNormalization(input_shape=self.input_shape, name='batch_normalization'))
+        model.add(BatchNormalization(input_shape=self.input_shape))
 
-        # convolutional layers to extract spatial features
-        model.add(Conv1D(filters=64, kernel_size=3, activation='relu', name='conv1d'))
-        model.add(MaxPooling1D(pool_size=2, name='max_pooling1d'))
-        model.add(Dropout(0.3, name='dropout1'))
+        # first Conv1D layer with L2 regularization
+        model.add(
+            Conv1D(filters=64, kernel_size=3, activation="relu", kernel_regularizer=l2(0.01))
+        )  # changed kernel size and filters
+        model.add(MaxPooling1D(pool_size=2))
 
-        model.add(Conv1D(filters=128, kernel_size=3, activation='relu', name='conv1d_1'))
-        model.add(MaxPooling1D(pool_size=2, name='max_pooling1d_1'))
-        model.add(Dropout(0.3, name='dropout2'))
+        # second Conv1D layer with L2 regularization
+        model.add(
+            Conv1D(filters=128, kernel_size=3, activation="relu", kernel_regularizer=l2(0.01))
+        )  # changed kernel size and filters
+        model.add(MaxPooling1D(pool_size=2))
 
-        model.add(Conv1D(filters=256, kernel_size=3, activation='relu', name='conv1d_2'))
-        model.add(MaxPooling1D(pool_size=2, name='max_pooling1d_2'))
-        model.add(Dropout(0.4, name='dropout3'))
+        # third Conv1D layer with L2 regularization
+        model.add(
+            Conv1D(filters=256, kernel_size=3, activation="relu", kernel_regularizer=l2(0.01))
+        )  # changed kernel size and filters
+        model.add(MaxPooling1D(pool_size=2))
 
-        # dense layer before LSTM
-        model.add(Dense(64, activation='relu', name='dense'))
-        model.add(Dropout(0.5, name='dropout4'))
+        # dense layer for feature extraction with L2 regularization
+        model.add(Dense(64, activation="relu", kernel_regularizer=l2(0.01)))
+        model.add(Dropout(0.5))
 
-        # single Bidirectional LSTM layer
-        model.add(Bidirectional(LSTM(512, return_sequences=False), name='bidirectional'))
+        # bidirectional LSTM layer with L2 regularization
+        model.add(
+            Bidirectional(
+                LSTM(
+                    512, return_sequences=False, activation="relu", kernel_regularizer=l2(0.01)
+                )
+            )
+        )
 
-        # fully connected layers for classification
-        model.add(Dense(128, activation='relu', name='dense_1'))
-        model.add(Dropout(0.5, name='dropout5'))
+        # dense layers for classification with dropout for regularization
+        model.add(Dense(128, activation="relu", kernel_regularizer=l2(0.01)))
+        model.add(Dropout(0.5))  # slightly higher dropout rate, so it's not overfitting
+        model.add(Dense(64, activation="relu", kernel_regularizer=l2(0.01)))
+        model.add(Dropout(0.5))  # slightly higher dropout rate, so it's not overfitting
 
-        model.add(Dense(64, activation='relu', name='dense_2'))
-        model.add(Dropout(0.3, name='dropout6'))
-
-        # output layer with softmax activation for classification
-        model.add(Dense(6, activation='softmax', name='dense_3'))
+        model.add(Dense(self.ACTIONS.shape[0], activation="softmax"))
 
         # Load pre-trained weights
         # model.load_weights(rf"models/keras/asl-action-cnn-lstm_1l-6a-es_p30__rlr_f05_p10_lr1e5-2.9M.keras")
-        model.load_weights("./models/asl-action-cnn-lstm_1l-6a-es_p30__rlr_f05_p10_lr1e5-2.9M.keras")
+        model.load_weights("./models/asl-action-cnn-lstm_1l-6a-es_p30__rlr_f05_p10_lr1e5-2.9M.h5")
 
         self.model = model
 
@@ -149,100 +158,6 @@ class LoadModel():
         self.hand_detector = vision.HandLandmarker.create_from_options(hand_options)
         self.pose_detector = vision.PoseLandmarker.create_from_options(pose_options)
         
-
-    def draw_detection_landmark(self,
-        image,
-        face_landmarks_proto=None,
-        pose_landmarks_proto=None,
-        hand_landmarks_proto=None,
-    ):
-        # draw landmark face
-        self.drawer.draw_landmarks(
-            image,
-            face_landmarks_proto,
-            mp.solutions.face_mesh.FACEMESH_CONTOURS,
-            self.drawer.DrawingSpec(color=(80, 60, 20), thickness=1, circle_radius=1),
-            self.drawer.DrawingSpec(color=(80, 146, 241), thickness=1, circle_radius=1),
-        )
-
-        # draw landmark pose
-        self.drawer.draw_landmarks(
-            image,
-            pose_landmarks_proto,
-            mp.solutions.pose.POSE_CONNECTIONS,
-            self.drawer.DrawingSpec(color=(80, 22, 10), thickness=2, circle_radius=3),
-            self.drawer.DrawingSpec(color=(80, 44, 121), thickness=2, circle_radius=2),
-        )
-
-        # draw landmark for both hand (right, left)
-        for idx in range(len(hand_landmarks_proto)):
-            self.drawer.draw_landmarks(
-                image,
-                hand_landmarks_proto[idx],
-                mp.solutions.hands.HAND_CONNECTIONS,
-                self.drawer.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=2),
-                self.drawer.DrawingSpec(color=(121, 44, 250), thickness=2, circle_radius=2),
-            )
-
-
-    def create_landmark_list(self, landmarks, num_keypoints):
-        """Creates a LandmarkList protocol buffer from a list of landmarks or fills with empty values if no landmarks are provided.
-
-        Args:
-            landmarks: A list of landmark objects, each containing x, y, z coordinates.
-            num_keypoints: The number of keypoints to be included in the LandmarkList.
-
-        Returns:
-            A LandmarkList containing the converted landmarks or empty values if no landmarks are provided.
-        """
-        # generate empty landmarks with all coordinates set to 0.0
-        empty_landmarks = [
-            self.NormalizedLandmark(x=0.0, y=0.0, z=0.0) for _ in range(num_keypoints)
-        ]
-
-        return self.LandmarkList(
-            landmark=(
-                # convert provided landmarks to NormalizedLandmark objects or use empty landmarks
-                [self.NormalizedLandmark(x=lm.x, y=lm.y, z=lm.z) for lm in landmarks]
-                if landmarks
-                else empty_landmarks
-            )
-        )
-
-
-    def extract_keypoints_for_drawing(self, face_results, pose_results, hand_results):
-        """Converts face, pose, and hand landmarks to corresponding protocol buffer lists for drawing.
-
-        Args:
-            face_results: Object containing face landmark detection results.
-            pose_results: Object containing pose landmark detection results.
-            hand_results: Object containing hand landmark detection results.
-
-        Returns:
-            A tuple containing three LandmarkList messages: face_landmarks, pose_landmarks, and hand_landmarks.
-        """
-        # convert face landmarks to LandmarkList, using empty values if no landmarks are present
-        face_landmarks_proto = self.create_landmark_list(
-            face_results.face_landmarks[0] if face_results.face_landmarks else None, 478 * 3
-        )
-
-        # convert pose landmarks to LandmarkList, using empty values if no landmarks are present
-        pose_landmarks_proto = self.create_landmark_list(
-            pose_results.pose_landmarks[0] if pose_results.pose_landmarks else None, 33 * 4
-        )
-
-        # convert hand landmarks to LandmarkList, using empty values if no landmarks are present
-        hand_landmarks_proto = [
-            self.create_landmark_list(hand_landmarks, 21 * 3)
-            for hand_landmarks in (
-                hand_results.hand_landmarks
-                if hand_results.hand_landmarks
-                else [None, None]  # two hands
-            )
-        ]
-
-        return face_landmarks_proto, pose_landmarks_proto, hand_landmarks_proto
-    
 
     def extract_keypoints(self, face_results, pose_results, hand_results):
         """Extracts keypoints from face, pose, and hand results for dataset creation.
@@ -310,6 +225,101 @@ class LoadModel():
 
         # flatten the hand keypoints array and concatenate it with face and pose keypoints
         return np.concatenate([face_keypoints, pose_keypoints, hand_keypoints.flatten()])
+    
+
+    def create_landmark_list(self, landmarks, num_keypoints):
+        """Creates a LandmarkList protocol buffer from a list of landmarks or fills with empty values if no landmarks are provided.
+
+        Args:
+            landmarks: A list of landmark objects, each containing x, y, z coordinates.
+            num_keypoints: The number of keypoints to be included in the LandmarkList.
+
+        Returns:
+            A LandmarkList containing the converted landmarks or empty values if no landmarks are provided.
+        """
+        # generate empty landmarks with all coordinates set to 0.0
+        empty_landmarks = [
+            self.NormalizedLandmark(x=0.0, y=0.0, z=0.0) for _ in range(num_keypoints)
+        ]
+
+        return self.LandmarkList(
+            landmark=(
+                # convert provided landmarks to NormalizedLandmark objects or use empty landmarks
+                [self.NormalizedLandmark(x=lm.x, y=lm.y, z=lm.z) for lm in landmarks]
+                if landmarks
+                else empty_landmarks
+            )
+        )
+    
+
+    def extract_keypoints_for_drawing(self, face_results, pose_results, hand_results):
+        """Converts face, pose, and hand landmarks to corresponding protocol buffer lists for drawing.
+
+        Args:
+            face_results: Object containing face landmark detection results.
+            pose_results: Object containing pose landmark detection results.
+            hand_results: Object containing hand landmark detection results.
+
+        Returns:
+            A tuple containing three LandmarkList messages: face_landmarks, pose_landmarks, and hand_landmarks.
+        """
+        # convert face landmarks to LandmarkList, using empty values if no landmarks are present
+        face_landmarks_proto = self.create_landmark_list(
+            face_results.face_landmarks[0] if face_results.face_landmarks else None, 478 * 3
+        )
+
+        # convert pose landmarks to LandmarkList, using empty values if no landmarks are present
+        pose_landmarks_proto = self.create_landmark_list(
+            pose_results.pose_landmarks[0] if pose_results.pose_landmarks else None, 33 * 4
+        )
+
+        # convert hand landmarks to LandmarkList, using empty values if no landmarks are present
+        hand_landmarks_proto = [
+            self.create_landmark_list(hand_landmarks, 21 * 3)
+            for hand_landmarks in (
+                hand_results.hand_landmarks
+                if hand_results.hand_landmarks
+                else [None, None]  # two hands
+            )
+        ]
+
+        return face_landmarks_proto, pose_landmarks_proto, hand_landmarks_proto
+    
+
+    def draw_detection_landmark(self,
+        image,
+        face_landmarks_proto=None,
+        pose_landmarks_proto=None,
+        hand_landmarks_proto=None,
+    ):
+        
+        # draw landmark face
+        self.drawer.draw_landmarks(
+            image,
+            face_landmarks_proto,
+            mp.solutions.face_mesh.FACEMESH_CONTOURS,
+            self.drawer.DrawingSpec(color=(80, 60, 20), thickness=1, circle_radius=1),
+            self.drawer.DrawingSpec(color=(80, 146, 241), thickness=1, circle_radius=1),
+        )
+
+        # draw landmark pose
+        self.drawer.draw_landmarks(
+            image,
+            pose_landmarks_proto,
+            mp.solutions.pose.POSE_CONNECTIONS,
+            self.drawer.DrawingSpec(color=(80, 22, 10), thickness=2, circle_radius=3),
+            self.drawer.DrawingSpec(color=(80, 44, 121), thickness=2, circle_radius=2),
+        )
+
+        # draw landmark for both hand (right, left)
+        for idx in range(len(hand_landmarks_proto)):
+            self.drawer.draw_landmarks(
+                image,
+                hand_landmarks_proto[idx],
+                mp.solutions.hands.HAND_CONNECTIONS,
+                self.drawer.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=2),
+                self.drawer.DrawingSpec(color=(121, 44, 250), thickness=2, circle_radius=2),
+            )
 
 
     def predict_v(self, path: str):
@@ -319,11 +329,14 @@ class LoadModel():
         sentence = []
         predictions = []
 
-        cap = cv2.VideoCapture(path)
+        cap = cv2.VideoCapture(rf"C:\Users\biscuits\Pictures\Camera Roll\WIN_20240605_01_49_35_Pro.mp4")
 
-        # start_time = time.time()
+        timestamp_ms = 0
 
-        while cap.isOpened():
+        start_time = time.time()
+        isQuit = False
+
+        while True:
             success, image = cap.read()
 
             if not success:
@@ -357,18 +370,18 @@ class LoadModel():
 
             keypoints = self.extract_keypoints(face_results, pose_results, hand_results)
             sequences.append(keypoints)
-            # sequence = sequences[-30:]
+            sequence = sequences[-30:]
 
-            # face_proto, pose_proto, hand_proto = self.extract_keypoints_for_drawing(
-            #     face_results, pose_results, hand_results
-            # )
+            face_proto, pose_proto, hand_proto = self.extract_keypoints_for_drawing(
+                face_results, pose_results, hand_results
+            )
 
-            # self.draw_detection_landmark(
-            #     image_rgb,
-            #     face_landmarks_proto=face_proto,
-            #     pose_landmarks_proto=pose_proto,
-            #     hand_landmarks_proto=hand_proto,
-            # )
+            self.draw_detection_landmark(
+                image_rgb,
+                face_landmarks_proto=face_proto,
+                pose_landmarks_proto=pose_proto,
+                hand_landmarks_proto=hand_proto,
+            )
 
             if len(sequence) == self.sequence_length:
                 # predict the action label based on the sequence of keypoints
@@ -381,16 +394,13 @@ class LoadModel():
                 # action class with the highest confidence score
                 predictions.append(np.argmax(result))
 
-                # NOTE: If the current prediction matches the most common prediction over the last 20 frames,
+                # NOTE: If the current prediction matches the most common prediction over the last 10 frames,
                 #       it suggests that the current action is likely intentional and
                 #       consistent with recent actions, rather than a momentary anomaly.
                 if np.unique(predictions[-10:])[0] == np.argmax(result):
 
                     # check if the confidence score of the current prediction index is above the threshold.
                     if result[np.argmax(result)] > self.threshold:
-
-                        # checks if there are any elements in the sentence list.
-                        # If it's not empty, it means there are already recognized actions in the sentence.
                         if len(sentence) > 0:
                             # compares the current predicted action
                             if self.ACTIONS[np.argmax(result)] != sentence[-1]:
@@ -399,40 +409,21 @@ class LoadModel():
                             # no recognized actions yet
                             sentence.append(self.ACTIONS[np.argmax(result)])
 
-                # limit the length of the recognized action sentence to 5 elements by
-                # keeping only the last two elements so it does not exceed the text box
-                # if len(sentence) > 3:
-                #     sentence = sentence[-3:]
-
-                # overlay the predicted action on the image
-                # image_rgb = self.confidence_bar(result, self.ACTIONS, image_rgb, self.colors)
-
-            # cv2.rectangle(image_rgb, (0, 0), (640, 40), (245, 117, 16), -1)
-            # cv2.putText(
-            #     image_rgb,
-            #     " ".join(sentence),
-            #     (3, 30),
-            #     cv2.FONT_HERSHEY_SIMPLEX,
-            #     1,
-            #     (255, 255, 255),
-            #     2,
-            #     cv2.LINE_AA,
-            # )
-
             # cv2.imshow(
             #     "MediaPipe Detection",
             #     cv2.cvtColor(image_rgb, cv2.COLOR_BGR2RGB),
             # )
 
-            # if cv2.waitKey(10) & 0xFF == ord("q"):
-            #     break
+            if cv2.waitKey(10) & 0xFF == ord("q"):
+                break
+
         cap.release()
         # cv2.destroyAllWindows()
 
+        return sentence
 
+        # np.expand_dims(sequence, axis=0)
 
-        np.expand_dims(sequence, axis=0)
+        # pred = self.model.predict(np.expand_dims(sequence, axis=0))[0]
 
-        pred = self.model.predict(np.expand_dims(sequence, axis=0))[0]
-
-        return self.ACTIONS[np.argsmax(pred)]
+        # return self.ACTIONS[np.argsmax(pred)]
