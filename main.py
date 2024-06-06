@@ -1,12 +1,15 @@
 import tempfile
 import os
+import asyncio
+from dotenv import load_dotenv
 from typing import Union
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, BackgroundTasks
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from predict.predict import LoadModel
 
+load_dotenv()
 app = FastAPI()
-
 load_model = LoadModel()
 
 @app.get("/")
@@ -17,21 +20,24 @@ async def read_root():
             "message": "ML Prediction API is running!"}, 
         status_code=200)
 
+
 @app.post("/predict")
-async def predict(video: UploadFile = File(
+def predict(video: UploadFile = File(
     media_type=["video/mp4", "video/x-m4v", "video/*"]
 )):
     try:
-        print(video.filename)
-        print(video.file)
+        # print(video.filename)
+        # print(video.file)
         # print(video.read())
         # print(video.close())
         # print(video)
         with tempfile.TemporaryFile() as tmp_file:
-            tmp_file.write(await video.read())
+            tmp_file.write(video.file.read())
             # print(tmp_file.name)
 
             result = load_model.predict_v(tmp_file.name)
+
+            tmp_file.close()
 
         return JSONResponse(
             content={
@@ -50,4 +56,9 @@ async def predict(video: UploadFile = File(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, reload=True)
+    uvicorn.run(
+        "main:app", 
+        host=str(os.getenv('HOST')), 
+        port=int(os.getenv('PORT')), 
+        workers=int(os.getenv('WORKERS')),
+        reload=True)

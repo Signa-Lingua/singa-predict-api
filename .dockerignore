@@ -32,3 +32,9 @@
 **/values.dev.yaml
 LICENSE
 README.md
+
+
+models/*
+.env
+.env.yaml
+video_test_model.ipynb

@@ -1,3 +1,6 @@
 *.mp4
 __pycache__
 models/*
+video_test_model.ipynb
+.env
+.env.yaml
