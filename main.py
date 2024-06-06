@@ -53,6 +53,24 @@ def predict(video: UploadFile = File(
             status_code=500)
 
 
+@app.post("/init")
+def init_model():
+    try:
+        get_model()
+        return JSONResponse(
+            content={
+                "error": False, 
+                "message": "Model initialized!"}, 
+            status_code=200)
+    except Exception as e:
+        return JSONResponse(
+            content={
+                "error": True, 
+                "message": "Model initialization failed!", 
+                "data": str(e)}, 
+            status_code=500)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

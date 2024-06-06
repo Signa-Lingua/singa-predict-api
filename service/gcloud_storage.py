@@ -14,6 +14,7 @@ def get_model():
     if os.path.exists(bucket_file_path):
         print(f"Model already exists: {bucket_file_path}")
     else:
+        os.makedirs(os.path.dirname(bucket_file_path), exist_ok=True)
         bucket = storage_client.bucket(bucket_name) # get bucket
         blob = bucket.blob(bucket_file_path) # get file
         
