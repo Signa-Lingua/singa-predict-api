@@ -3,9 +3,8 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from typing import Union
-from fastapi import FastAPI, File, UploadFile, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
-from starlette.concurrency import run_in_threadpool
 from predict.predict import LoadModel
 
 load_dotenv()

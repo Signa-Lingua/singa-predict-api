@@ -17,6 +17,10 @@ from tensorflow.keras.callbacks import TensorBoard, EarlyStopping, ReduceLROnPla
 from tensorflow.keras.regularizers import l2  # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
 
+from datetime import datetime
+
+from service.gcloud_storage import get_model
+
 class LoadModel():
     def __init__(self):
         self.ACTIONS = np.array(
@@ -124,7 +128,7 @@ class LoadModel():
 
         # Load pre-trained weights
         # model.load_weights(rf"models/keras/asl-action-cnn-lstm_1l-6a-es_p30__rlr_f05_p10_lr1e5-2.9M.keras")
-        model.load_weights("./models/asl-action-cnn-lstm_1l-6a-es_p30__rlr_f05_p10_lr1e5-2.9M.h5")
+        model.load_weights(get_model())
 
         self.model = model
 
@@ -329,9 +333,10 @@ class LoadModel():
         sentence = []
         predictions = []
 
-        cap = cv2.VideoCapture(rf"C:\Users\biscuits\Pictures\Camera Roll\WIN_20240605_01_49_35_Pro.mp4")
+        cap = cv2.VideoCapture(path)
 
         timestamp_ms = 0
+        previous_timestamp_ms = 0
 
         start_time = time.time()
         isQuit = False
@@ -343,31 +348,42 @@ class LoadModel():
                 print("Ignoring empty camera frame.")
                 break
 
-            # NOTE: using flip image will screw'ed up some of the keypoints
-            #       data for training the model later
-            # image = cv2.flip(image, 1) # flip the image horizontally for a selfie-view display.
-
+            # Convert image to RGB
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-            # get current frame timestamp in milliseconds
-            timestamp_ms = int(cap.get(cv2.CAP_PROP_POS_MSEC))
+            # Get the current timestamp in milliseconds
+            current_time = datetime.now()
+            timestamp_ms = int(current_time.timestamp() * 1000)
 
-            # convert cv image to mediapipe image format before being
-            # passed to face, pose and hand detector
+            # Ensure timestamps are monotonically increasing
+            if timestamp_ms <= previous_timestamp_ms:
+                print(
+                    f"Timestamp error: {timestamp_ms} is not greater than {previous_timestamp_ms}"
+                )
+                continue  # Skip the current frame if the timestamp is not increasing
+
+            previous_timestamp_ms = timestamp_ms
+
+            # Convert cv image to mediapipe image format before being passed to detectors
             annotated_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
 
-            face_results = self.face_detector.detect_for_video(
-                image=annotated_image, timestamp_ms=timestamp_ms
-            )
+            try:
+                face_results = self.face_detector.detect_for_video(
+                    image=annotated_image, timestamp_ms=timestamp_ms + 1
+                )
 
-            hand_results = self.hand_detector.detect_for_video(
-                image=annotated_image, timestamp_ms=timestamp_ms + 1
-            )
+                hand_results = self.hand_detector.detect_for_video(
+                    image=annotated_image, timestamp_ms=timestamp_ms
+                )
 
-            pose_results = self.pose_detector.detect_for_video(
-                image=annotated_image, timestamp_ms=timestamp_ms + 2
-            )
+                pose_results = self.pose_detector.detect_for_video(
+                    image=annotated_image, timestamp_ms=timestamp_ms
+                )
+            except ValueError as ex:
+                print(ex)
+                continue
 
+            # Extract keypoints (implement your extract_keypoints function)
             keypoints = self.extract_keypoints(face_results, pose_results, hand_results)
             sequences.append(keypoints)
             sequence = sequences[-30:]
@@ -401,6 +417,9 @@ class LoadModel():
 
                     # check if the confidence score of the current prediction index is above the threshold.
                     if result[np.argmax(result)] > self.threshold:
+
+                        # checks if there are any elements in the sentence list.
+                        # If it's not empty, it means there are already recognized actions in the sentence.
                         if len(sentence) > 0:
                             # compares the current predicted action
                             if self.ACTIONS[np.argmax(result)] != sentence[-1]:
@@ -409,21 +428,11 @@ class LoadModel():
                             # no recognized actions yet
                             sentence.append(self.ACTIONS[np.argmax(result)])
 
-            # cv2.imshow(
-            #     "MediaPipe Detection",
-            #     cv2.cvtColor(image_rgb, cv2.COLOR_BGR2RGB),
-            # )
+            # cv2.imshow("MediaPipe Detection", cv2.cvtColor(image_rgb, cv2.COLOR_BGR2RGB))
 
             if cv2.waitKey(10) & 0xFF == ord("q"):
                 break
 
         cap.release()
         # cv2.destroyAllWindows()
-
         return sentence
-
-        # np.expand_dims(sequence, axis=0)
-
-        # pred = self.model.predict(np.expand_dims(sequence, axis=0))[0]
-
-        # return self.ACTIONS[np.argsmax(pred)]
