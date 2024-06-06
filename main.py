@@ -1,15 +1,22 @@
 import tempfile
 import os
-import asyncio
+
 from dotenv import load_dotenv
-from typing import Union
+# from typing import Union
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
+
 from predict.predict import LoadModel
+from service.gcloud_storage import get_model
 
 load_dotenv()
 app = FastAPI()
-load_model = LoadModel()
+
+
+def load_model():
+    load_model = LoadModel(get_model())
+    return load_model
+
 
 @app.get("/")
 async def read_root():
@@ -25,17 +32,10 @@ def predict(video: UploadFile = File(
     media_type=["video/mp4", "video/x-m4v", "video/*"]
 )):
     try:
-        # print(video.filename)
-        # print(video.file)
-        # print(video.read())
-        # print(video.close())
-        # print(video)
         with tempfile.TemporaryFile() as tmp_file:
             tmp_file.write(video.file.read())
-            # print(tmp_file.name)
-
-            result = load_model.predict_v(tmp_file.name)
-
+            lm = load_model()
+            result = lm.predict_v(tmp_file.name)
             tmp_file.close()
 
         return JSONResponse(
@@ -58,6 +58,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app", 
         host=str(os.getenv('HOST')), 
-        port=int(os.getenv('PORT')), 
-        workers=int(os.getenv('WORKERS')),
-        reload=True)
+        port=int(os.getenv('PORT')),
+        reload=True
+        )

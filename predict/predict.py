@@ -19,10 +19,9 @@ from tensorflow.keras.optimizers import Adam # type: ignore
 
 from datetime import datetime
 
-from service.gcloud_storage import get_model
-
-class LoadModel():
-    def __init__(self):
+class LoadModel:
+    def __init__(self, model_path: str):
+        self.model_path = model_path
         self.ACTIONS = np.array(
             [
                 "hello",
@@ -128,7 +127,7 @@ class LoadModel():
 
         # Load pre-trained weights
         # model.load_weights(rf"models/keras/asl-action-cnn-lstm_1l-6a-es_p30__rlr_f05_p10_lr1e5-2.9M.keras")
-        model.load_weights(get_model())
+        model.load_weights(self.model_path)
 
         self.model = model
 

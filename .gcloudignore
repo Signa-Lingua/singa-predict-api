@@ -1,2 +1,4 @@
 .env*
+models/
 .gitignore
+video_test_model.ipynb
