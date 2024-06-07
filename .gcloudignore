@@ -1,4 +1,5 @@
 .env*
+__pycache__
 models/
 .gitignore
 video_test_model.ipynb

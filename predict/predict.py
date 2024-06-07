@@ -334,6 +334,10 @@ class LoadModel:
 
         cap = cv2.VideoCapture(path)
 
+        frame_rate = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = frame_count / frame_rate  # Duration of the video in seconds
+
         timestamp_ms = 0
         previous_timestamp_ms = 0
 
@@ -350,9 +354,16 @@ class LoadModel:
             # Convert image to RGB
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-            # Get the current timestamp in milliseconds
-            current_time = datetime.now()
-            timestamp_ms = int(current_time.timestamp() * 1000)
+            # # Get the current timestamp in milliseconds
+            # current_time = datetime.now()
+            # timestamp_ms = int(current_time.timestamp() * 1000)
+
+            # Calculate timestamp based on frame rate
+            timestamp_ms = int((time.time() - start_time) * 1000)
+
+            # Ensure timestamp is within video duration
+            if timestamp_ms > duration * 1000:
+                break
 
             # Ensure timestamps are monotonically increasing
             if timestamp_ms <= previous_timestamp_ms:
@@ -360,6 +371,8 @@ class LoadModel:
                     f"Timestamp error: {timestamp_ms} is not greater than {previous_timestamp_ms}"
                 )
                 continue  # Skip the current frame if the timestamp is not increasing
+
+            # print(f"Timestamp: {timestamp_ms} ms")
 
             previous_timestamp_ms = timestamp_ms
 
@@ -414,6 +427,8 @@ class LoadModel:
                 #       consistent with recent actions, rather than a momentary anomaly.
                 if np.unique(predictions[-10:])[0] == np.argmax(result):
 
+                    current_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
+
                     # check if the confidence score of the current prediction index is above the threshold.
                     if result[np.argmax(result)] > self.threshold:
 
@@ -422,10 +437,19 @@ class LoadModel:
                         if len(sentence) > 0:
                             # compares the current predicted action
                             if self.ACTIONS[np.argmax(result)] != sentence[-1]:
-                                sentence.append(self.ACTIONS[np.argmax(result)])
+                                
+                                data = {
+                                    "text": self.ACTIONS[np.argmax(result)],
+                                    "timestamp": current_time,
+                                }
+                                sentence.append(data)
                         else:
                             # no recognized actions yet
-                            sentence.append(self.ACTIONS[np.argmax(result)])
+                            data = {
+                                    "text": self.ACTIONS[np.argmax(result)],
+                                    "timestamp": current_time,
+                                }
+                            sentence.append(data)
 
             # cv2.imshow("MediaPipe Detection", cv2.cvtColor(image_rgb, cv2.COLOR_BGR2RGB))
 

@@ -36,6 +36,10 @@ RUN adduser \
     --uid "${UID}" \
     appuser
 
+
+# Change ownership of the entire /app directory to the appuser
+RUN chown -R appuser:appuser /app
+
 # Download dependencies as a separate step to take advantage of Docker's caching.
 # Leverage a cache mount to /root/.cache/pip to speed up subsequent builds.
 # Leverage a bind mount to requirements.txt to avoid having to copy them into
