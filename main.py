@@ -32,8 +32,9 @@ def predict(video: UploadFile = File(
     media_type=["video/mp4", "video/x-m4v", "video/*"]
 )):
     try:
-        with tempfile.TemporaryFile() as tmp_file:
+        with tempfile.NamedTemporaryFile() as tmp_file:
             tmp_file.write(video.file.read())
+            # print(f"This is the temp file path: {tmp_file.name}")
             lm = load_model()
             result = lm.predict_v(tmp_file.name)
             tmp_file.close()
