@@ -10,14 +10,13 @@ from mediapipe.tasks import python  # type: ignore
 from mediapipe.tasks.python import vision  # type: ignore
 from mediapipe.framework.formats import landmark_pb2 # type: ignore
 
-
 from tensorflow.keras.models import Sequential  # type: ignore
 from tensorflow.keras.layers import BatchNormalization, Conv1D, MaxPooling1D, Flatten, Dense, Dropout, LSTM, TimeDistributed, Reshape, Bidirectional  # type: ignore
 from tensorflow.keras.callbacks import TensorBoard, EarlyStopping, ReduceLROnPlateau  # type: ignore
 from tensorflow.keras.regularizers import l2  # type: ignore
 from tensorflow.keras.optimizers import Adam # type: ignore
-
-from datetime import datetime
+# from tensorflow.config import list_physical_devices # type: ignore
+# from tensorflow.debugging import set_log_device_placement # type: ignore
 
 class LoadModel:
     def __init__(self, model_path: str):
@@ -360,6 +359,7 @@ class LoadModel:
 
             # Calculate timestamp based on frame rate
             timestamp_ms = int((time.time() - start_time) * 1000)
+            
 
             # Ensure timestamp is within video duration
             if timestamp_ms > duration * 1000:
@@ -427,7 +427,14 @@ class LoadModel:
                 #       consistent with recent actions, rather than a momentary anomaly.
                 if np.unique(predictions[-10:])[0] == np.argmax(result):
 
-                    current_time = time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time))
+                    # current_time = time.strftime("%H:%M:%S.%f", time.gmtime(time.time() - start_time))
+
+                    elapsed_time = time.time() - start_time
+                    hours, remainder = divmod(int(elapsed_time), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    milliseconds = int((elapsed_time - int(elapsed_time)) * 1000)
+
+                    current_time = f"{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}"
 
                     # check if the confidence score of the current prediction index is above the threshold.
                     if result[np.argmax(result)] > self.threshold:
