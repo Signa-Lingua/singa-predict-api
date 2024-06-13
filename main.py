@@ -1,6 +1,7 @@
 import tempfile
 import os
 
+from time import sleep
 from dotenv import load_dotenv
 # from typing import Union
 from fastapi import FastAPI, File, UploadFile
@@ -32,12 +33,21 @@ def predict(video: UploadFile = File(
     media_type=["video/mp4", "video/x-m4v", "video/*"]
 )):
     try:
-        with tempfile.NamedTemporaryFile() as tmp_file:
-            tmp_file.write(video.file.read())
-            # print(f"This is the temp file path: {tmp_file.name}")
+        # with tempfile.NamedTemporaryFile() as tmp_file:
+        #     tmp_file.write(video.file.read())
+        #     print(f"This is the temp file path: {tmp_file.name}")
+        #     lm = load_model()
+        #     result = lm.predict_v(tmp_file.name)
+        #     tmp_file.close()
+
+        with open("file.mp4", "wb") as f:
+            f.write(video.file.read())
+
             lm = load_model()
-            result = lm.predict_v(tmp_file.name)
-            tmp_file.close()
+            result = lm.predict_v("file.mp4")
+
+
+            f.close()
 
         return JSONResponse(
             content={
