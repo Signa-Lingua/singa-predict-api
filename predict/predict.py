@@ -1,54 +1,27 @@
-import cv2  # type: ignore
-import os
 import time
-import numpy as np  # type: ignore
 
-import mediapipe as mp  # type: ignore
+import os
+import cv2
+import mediapipe as mp
+import numpy as np
+import tensorflow as tf
+from mediapipe.framework.formats import landmark_pb2
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 
-from matplotlib import pyplot as plt # type: ignore
-from mediapipe.tasks import python  # type: ignore
-from mediapipe.tasks.python import vision  # type: ignore
-from mediapipe.framework.formats import landmark_pb2 # type: ignore
-
-from tensorflow.keras.models import Sequential  # type: ignore
-from tensorflow.keras.layers import BatchNormalization, Conv1D, MaxPooling1D, Flatten, Dense, Dropout, LSTM, TimeDistributed, Reshape, Bidirectional  # type: ignore
-from tensorflow.keras.callbacks import TensorBoard, EarlyStopping, ReduceLROnPlateau  # type: ignore
-from tensorflow.keras.regularizers import l2  # type: ignore
-from tensorflow.keras.optimizers import Adam # type: ignore
-# from tensorflow.config import list_physical_devices # type: ignore
-# from tensorflow.debugging import set_log_device_placement # type: ignore
+import matplotlib.pyplot as plt
+import concurrent.futures
+from moviepy.editor import VideoFileClip
 
 class LoadModel:
     def __init__(self, model_path: str):
         self.model_path = model_path
         self.ACTIONS = np.array(
             [
-                "hello",
-                "thanks",
-                "i-love-you",
-                "see-you-later",
-                "I",
-                "Father",
-                "Mother",
-                "Yes",
-                "No",
-                "Help",
-                "Please",
-                "Want",
-                "What",
-                "Again",
-                "Eat",
-                "Milk",
-                "More",
-                "Go To",
-                "Bathroom",
-                "Fine",
-                "Like",
-                "Learn",
-                "Sign",
-                "Done",
+                "_", "hello", "thanks", "i-love-you", "I", "Yes", "No", "Help", "Please",
+                "Want", "Eat", "More", "Bathroom", "Learn", "Sign",
             ]
-        )[:6]
+        )[:8]
 
 
         self.colors = [
@@ -57,7 +30,7 @@ class LoadModel:
             (16, 117, 245),
             (117, 117, 16),
             (16, 245, 117),
-            (245, 117, 245)
+            (245, 117, 245),
         ]
 
         self.input_shape = (30, 1692)
@@ -67,6 +40,9 @@ class LoadModel:
 
         self.LandmarkList = landmark_pb2.NormalizedLandmarkList
         self.NormalizedLandmark = landmark_pb2.NormalizedLandmark
+
+        self.empty_hand_landmark = np.zeros((2, 21, 3))  # right hand and left hand
+        self.empty_pose_landmark = np.zeros(33 * 3)
 
         self.sequence_length = 30
         self.threshold = 0.5
@@ -78,264 +54,187 @@ class LoadModel:
         self.init_model()
         self.init_detector()
 
+        self.empty_pose_landmarks = self.to_landmark_list(
+            [self.NormalizedLandmark(x=0.0, y=0.0, z=0.0) for _ in range(33 * 4)]
+        )
+
+        self.empty_hand_landmarks = self.to_landmark_list(
+            [self.NormalizedLandmark(x=0.0, y=0.0, z=0.0) for _ in range(21 * 3)]
+        )
 
     def init_model(self):
-        model = Sequential()
-
-        # data normalization
-        model.add(BatchNormalization(input_shape=self.input_shape))
-
-        # first Conv1D layer with L2 regularization
-        model.add(
-            Conv1D(filters=64, kernel_size=3, activation="relu", kernel_regularizer=l2(0.01))
-        )  # changed kernel size and filters
-        model.add(MaxPooling1D(pool_size=2))
-
-        # second Conv1D layer with L2 regularization
-        model.add(
-            Conv1D(filters=128, kernel_size=3, activation="relu", kernel_regularizer=l2(0.01))
-        )  # changed kernel size and filters
-        model.add(MaxPooling1D(pool_size=2))
-
-        # third Conv1D layer with L2 regularization
-        model.add(
-            Conv1D(filters=256, kernel_size=3, activation="relu", kernel_regularizer=l2(0.01))
-        )  # changed kernel size and filters
-        model.add(MaxPooling1D(pool_size=2))
-
-        # dense layer for feature extraction with L2 regularization
-        model.add(Dense(64, activation="relu", kernel_regularizer=l2(0.01)))
-        model.add(Dropout(0.5))
-
-        # bidirectional LSTM layer with L2 regularization
-        model.add(
-            Bidirectional(
-                LSTM(
-                    512, return_sequences=False, activation="relu", kernel_regularizer=l2(0.01)
-                )
-            )
-        )
-
-        # dense layers for classification with dropout for regularization
-        model.add(Dense(128, activation="relu", kernel_regularizer=l2(0.01)))
-        model.add(Dropout(0.5))  # slightly higher dropout rate, so it's not overfitting
-        model.add(Dense(64, activation="relu", kernel_regularizer=l2(0.01)))
-        model.add(Dropout(0.5))  # slightly higher dropout rate, so it's not overfitting
-
-        model.add(Dense(self.ACTIONS.shape[0], activation="softmax"))
-
-        # Load pre-trained weights
-        # model.load_weights(rf"models/keras/asl-action-cnn-lstm_1l-6a-es_p30__rlr_f05_p10_lr1e5-2.9M.keras")
-        model.load_weights(self.model_path)
-
-        self.model = model
-
+        try:
+            model = tf.keras.models.load_model(self.model_path)
+            self.model = model
+        except Exception as e:
+            print(f"{e}")
 
     def init_detector(self):
-        face_base_options = python.BaseOptions(model_asset_path="./tasks/face_landmarker.task")
         hand_base_options = python.BaseOptions(model_asset_path="./tasks/hand_landmarker.task")
         pose_base_options = python.BaseOptions(model_asset_path="./tasks/pose_landmarker.task")
-
-        face_options = vision.FaceLandmarkerOptions(
-            base_options=face_base_options,
-            output_face_blendshapes=True,
-            output_facial_transformation_matrixes=True,
-            num_faces=1,
-            running_mode=self.VisionRunningMode.VIDEO,
-        )
 
         hand_options = vision.HandLandmarkerOptions(
             base_options=hand_base_options,
             num_hands=2,
-            running_mode=self.VisionRunningMode.VIDEO,
+            min_hand_detection_confidence=0.8,
+            min_hand_presence_confidence=0.9,
+            min_tracking_confidence=0.8,
+            running_mode=self.VisionRunningMode.IMAGE,
         )
 
+        # options for pose detection
         pose_options = vision.PoseLandmarkerOptions(
             base_options=pose_base_options,
             output_segmentation_masks=True,
-            running_mode=self.VisionRunningMode.VIDEO,
+            min_pose_detection_confidence=0.95,
+            min_pose_presence_confidence=0.95,
+            min_tracking_confidence=0.95,
+            running_mode=self.VisionRunningMode.IMAGE,
         )
 
-        self.face_detector = vision.FaceLandmarker.create_from_options(face_options)
-        self.hand_detector = vision.HandLandmarker.create_from_options(hand_options)
-        self.pose_detector = vision.PoseLandmarker.create_from_options(pose_options)
-        
+        # create detectors
+        hand_detector = vision.HandLandmarker.create_from_options(hand_options)
+        pose_detector = vision.PoseLandmarker.create_from_options(pose_options)
 
-    def extract_keypoints(self, face_results, pose_results, hand_results):
-        """Extracts keypoints from face, pose, and hand results for dataset creation.
+        self.hand_detector = hand_detector
+        self.pose_detector = pose_detector
 
-        Handles cases with zero, one, or two hands, assigning hand keypoints based
-        on handedness information.
 
-        Args:
-        face_results: Object containing face landmark data (if available), assumed to
-                        have a `face_landmarks` attribute with landmark data.
-        pose_results: Object containing pose landmark data (if available), assumed to
-                        have a `pose_landmarks` attribute with landmark data.
-        hand_results: Object containing hand landmark data (if available), assumed to
-                        have `hand_landmarks` and `handedness` attributes.
-
-        Returns:
-        A tuple containing three NumPy arrays representing flattened keypoints for face,
-        pose, and hand, respectively. Empty arrays are used for missing modalities.
+    def to_landmark_data(self, hand_results: vision.HandLandmarkerResult, pose_results: vision.PoseLandmarkerResult):
         """
+        Extract keypoints from pose and hand results for dataset creation.
+        """
+        pose_landmark = self.empty_pose_landmark
+        hand_landmark = self.empty_hand_landmark
 
-        # extract face keypoints if available, otherwise return a zero-filled array
-        face_keypoints = (
-            np.array(
-                [
-                    [landmark.x, landmark.y, landmark.z]
-                    for landmark in face_results.face_landmarks[0]
-                ]
+        if pose_results.pose_world_landmarks:
+            pose_landmark = np.array(
+                [[lm.x, lm.y, lm.z] for lm in pose_results.pose_world_landmarks[0]]
             ).flatten()
-            if face_results.face_landmarks
-            else np.zeros(478 * 3)  # 478 landmarks with 3 coordinates each (x, y, z)
-        )
-
-        # extract pose keypoints if available, otherwise return a zero-filled array
-        pose_keypoints = (
-            np.array(
-                [
-                    [landmark.x, landmark.y, landmark.z, landmark.visibility]
-                    for landmark in pose_results.pose_landmarks[0]
-                ]
-            ).flatten()
-            if pose_results.pose_landmarks
-            else np.zeros(33 * 4)  # 33 landmarks with 4 values each (x, y, z, visibility)
-        )
-
-        # initialize hand keypoints with zeros for two hands (right and left),
-        # each with 21 landmarks and 3 coordinates
-        hand_keypoints = np.zeros((2, 21, 3))
 
         # if no hand results are available, return the empty hand keypoints
         # and concatenate it with face and pose keypoints
         if not hand_results:
-            return np.concatenate(
-                [face_keypoints, pose_keypoints, hand_keypoints.flatten()]
-            )
+            return np.concatenate([pose_landmark, hand_landmark.flatten()])
 
         # iterate over the detected hand landmarks
-        for idx in range(len(hand_results.hand_landmarks)):
+        for index, hlm in enumerate(hand_results.hand_world_landmarks):
             # determine the hand index (0 for right hand, 1 for left hand) using handedness information
-            handedness = hand_results.handedness[idx][0].index
+            handedness = hand_results.handedness[index][0].index
 
             # extract the keypoints for the current hand and assign them to the appropriate index
-            hand_keypoints[handedness] = np.array(
-                [[lm.x, lm.y, lm.z] for lm in hand_results.hand_landmarks[idx]]
-            )
+            hand_landmark[handedness] = np.array([[lm.x, lm.y, lm.z] for lm in hlm])
 
-        # flatten the hand keypoints array and concatenate it with face and pose keypoints
-        return np.concatenate([face_keypoints, pose_keypoints, hand_keypoints.flatten()])
-    
+        return np.concatenate([pose_landmark, hand_landmark.flatten()])
 
-    def create_landmark_list(self, landmarks, num_keypoints):
-        """Creates a LandmarkList protocol buffer from a list of landmarks or fills with empty values if no landmarks are provided.
 
-        Args:
-            landmarks: A list of landmark objects, each containing x, y, z coordinates.
-            num_keypoints: The number of keypoints to be included in the LandmarkList.
-
-        Returns:
-            A LandmarkList containing the converted landmarks or empty values if no landmarks are provided.
+    def to_landmark_list(self, landmarks):
         """
-        # generate empty landmarks with all coordinates set to 0.0
-        empty_landmarks = [
-            self.NormalizedLandmark(x=0.0, y=0.0, z=0.0) for _ in range(num_keypoints)
-        ]
-
+        Create a LandmarkList from a list of landmarks or fill with empty values if no landmarks are provided.
+        """
         return self.LandmarkList(
-            landmark=(
-                # convert provided landmarks to NormalizedLandmark objects or use empty landmarks
-                [self.NormalizedLandmark(x=lm.x, y=lm.y, z=lm.z) for lm in landmarks]
-                if landmarks
-                else empty_landmarks
-            )
+            landmark=([self.NormalizedLandmark(x=lm.x, y=lm.y, z=lm.z) for lm in landmarks])
         )
-    
 
-    def extract_keypoints_for_drawing(self, face_results, pose_results, hand_results):
-        """Converts face, pose, and hand landmarks to corresponding protocol buffer lists for drawing.
 
-        Args:
-            face_results: Object containing face landmark detection results.
-            pose_results: Object containing pose landmark detection results.
-            hand_results: Object containing hand landmark detection results.
 
-        Returns:
-            A tuple containing three LandmarkList messages: face_landmarks, pose_landmarks, and hand_landmarks.
+    def to_drawing_landmark(self, hand_results, pose_results):
         """
-        # convert face landmarks to LandmarkList, using empty values if no landmarks are present
-        face_landmarks_proto = self.create_landmark_list(
-            face_results.face_landmarks[0] if face_results.face_landmarks else None, 478 * 3
+        Convert pose and hand landmarks to LandmarkList for drawing.
+        """
+        pose_landmarks = (
+            self.to_landmark_list(pose_results.pose_landmarks[0])
+            if pose_results.pose_landmarks
+            else self.empty_pose_landmarks
         )
 
-        # convert pose landmarks to LandmarkList, using empty values if no landmarks are present
-        pose_landmarks_proto = self.create_landmark_list(
-            pose_results.pose_landmarks[0] if pose_results.pose_landmarks else None, 33 * 4
-        )
+        hand_landmarks = [self.empty_hand_landmarks, self.empty_hand_landmarks]
 
-        # convert hand landmarks to LandmarkList, using empty values if no landmarks are present
-        hand_landmarks_proto = [
-            self.create_landmark_list(hand_landmarks, 21 * 3)
-            for hand_landmarks in (
-                hand_results.hand_landmarks
-                if hand_results.hand_landmarks
-                else [None, None]  # two hands
-            )
-        ]
+        if not hand_results:
+            return pose_landmarks, None
 
-        return face_landmarks_proto, pose_landmarks_proto, hand_landmarks_proto
-    
+        # iterate over the detected hand landmarks
+        for index, hand_landmark in enumerate(hand_results.hand_landmarks):
+            # determine the hand index (0 for right hand, 1 for left hand) using handedness information
+            handedness = hand_results.handedness[index][0].index
 
-    def draw_detection_landmark(self,
-        image,
-        face_landmarks_proto=None,
-        pose_landmarks_proto=None,
-        hand_landmarks_proto=None,
-    ):
-        
-        # draw landmark face
+            # extract the keypoints for the current hand and assign them to the appropriate index
+            hand_landmarks[handedness] = self.to_landmark_list(hand_landmark)
+
+        return pose_landmarks, hand_landmarks
+
+
+    def draw_landmark(self, image, hand_landmarks, pose_landmarks):
+        """
+        Draw detected landmarks on the image.
+        """
         self.drawer.draw_landmarks(
             image,
-            face_landmarks_proto,
-            mp.solutions.face_mesh.FACEMESH_CONTOURS,
-            self.drawer.DrawingSpec(color=(80, 60, 20), thickness=1, circle_radius=1),
-            self.drawer.DrawingSpec(color=(80, 146, 241), thickness=1, circle_radius=1),
-        )
-
-        # draw landmark pose
-        self.drawer.draw_landmarks(
-            image,
-            pose_landmarks_proto,
+            pose_landmarks,
             mp.solutions.pose.POSE_CONNECTIONS,
             self.drawer.DrawingSpec(color=(80, 22, 10), thickness=2, circle_radius=3),
             self.drawer.DrawingSpec(color=(80, 44, 121), thickness=2, circle_radius=2),
         )
 
-        # draw landmark for both hand (right, left)
-        for idx in range(len(hand_landmarks_proto)):
+        if not hand_landmarks:
+            return
+
+        for hand_landmarks in hand_landmarks:
             self.drawer.draw_landmarks(
                 image,
-                hand_landmarks_proto[idx],
+                hand_landmarks,
                 mp.solutions.hands.HAND_CONNECTIONS,
                 self.drawer.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=2),
                 self.drawer.DrawingSpec(color=(121, 44, 250), thickness=2, circle_radius=2),
             )
 
 
-    def predict_v(self, path: str):
-        sequences = []
-        sequence = []
 
-        sentence = []
+
+    def process_frame(self, frame, image, threshold, skip_word):
+        start_time = time.time()
+
+        # Convert into mediapipe numpy type support uint8, uint16, or float32
+        image = image.astype(np.uint8)
+
+        # Convert cv image to mediapipe image format before being passed to detectors
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
+
+        try:
+            hand_results = self.hand_detector.detect(image=mp_image)
+            pose_results = self.pose_detector.detect(image=mp_image)
+
+            landmarks = self.to_landmark_data(hand_results, pose_results)
+        except:
+            print(f"frame {frame} skipped")
+            return frame, None, time.time() - start_time
+
+        return frame, landmarks, time.time() - start_time
+
+
+    def predict_v(self, path: str):
+        try:
+            clip = VideoFileClip(path)
+        except Exception as e:
+            print(f"{e}")
+        
+        avg_exec_time = []
+
         predictions = []
+        sequences = []
+
+        sentence = [] 
+        threshold = 0.2
+        skip_word = "_"
+
+        results = []
+        batch_size = 60
 
         cap = cv2.VideoCapture(path)
 
-        frame_rate = cap.get(cv2.CAP_PROP_FPS)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = frame_count / frame_rate  # Duration of the video in seconds
+        # frame_rate = cap.get(cv2.CAP_PROP_FPS)
+        # frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        # duration = frame_count / frame_rate  # Duration of the video in seconds
 
         timestamp_ms = 0
         previous_timestamp_ms = 0
@@ -343,6 +242,80 @@ class LoadModel:
         start_time = time.time()
         isQuit = False
 
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_frame = {
+                executor.submit(
+                    self.process_frame,
+                    frame,
+                    image,
+                    threshold,
+                    skip_word,
+                ): frame
+                for frame, image in enumerate(clip.iter_frames(fps=clip.fps))
+            }
+
+            for future in concurrent.futures.as_completed(future_to_frame):
+                frame, landmarks, exec_time = future.result()
+                avg_exec_time.append(exec_time)
+            
+
+                if landmarks is not None:
+                    results.append((frame, landmarks))
+
+        print(avg_exec_time)
+        # sort the results by frame number to ensure the order is correct
+        results.sort(key=lambda x: x[0])
+
+        for _, landmarks in results:
+            sequences.append(landmarks)
+
+            if len(sequences) < batch_size:
+                continue
+
+            timestamp_ms = int((time.time() - start_time) * 1000)
+
+            # collect a batch of sequences
+            batch_motion = np.stack(sequences[-batch_size:])
+            # sequences = sequences[
+            #     -(batch_size - 50) :
+            # ]  # keep the last 10 sequences for overlap
+            sequences = []
+
+            # ensure correct input shape by adding an extra dimension for batch size
+            batch_motion = np.expand_dims(batch_motion, axis=0)
+
+            # predict the entire batch
+            batch_result = self.model.predict(batch_motion, verbose=0)
+
+            print(batch_result)
+            print("="*50)
+
+            for result in batch_result:
+                # len of results is 480 (which is the total frame)?
+                predicted = np.argmax(result)
+
+                if (not result[predicted] > threshold) or not (
+                    self.ACTIONS[predicted] != skip_word
+                ):
+                    continue
+
+                if not predictions or predicted != predictions[-1]:
+                    elapsed_time = time.time() - start_time
+                    hours, remainder = divmod(int(elapsed_time), 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    milliseconds = int((elapsed_time - int(elapsed_time)) * 1000)
+                    current_time = f"{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}"
+
+
+                    data = {
+                        "text": self.ACTIONS[predicted],
+                        "timestamp": current_time,
+                    }
+                    predictions.append(data)
+    
+        return predictions
+        
+        
         while True:
             success, image = cap.read()
 
@@ -435,7 +408,7 @@ class LoadModel:
                     milliseconds = int((elapsed_time - int(elapsed_time)) * 1000)
 
                     current_time = f"{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}"
-
+                    ## HH:MM:SS.fff
                     # check if the confidence score of the current prediction index is above the threshold.
                     if result[np.argmax(result)] > self.threshold:
 

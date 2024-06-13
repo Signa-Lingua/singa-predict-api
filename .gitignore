@@ -5,3 +5,4 @@ models/*
 video_test_model.ipynb
 .env
 .env.yaml
+env/
