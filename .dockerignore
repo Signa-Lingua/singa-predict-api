@@ -37,4 +37,5 @@ README.md
 models/*
 .env
 .env.yaml
+env/
 video_test_model.ipynb
