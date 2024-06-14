@@ -1,4 +1,6 @@
 import concurrent.futures
+import datetime
+# import random
 
 import mediapipe as mp
 import numpy as np
@@ -36,6 +38,7 @@ class Model:
 
         self.init_task_vision()
 
+
     def init_task_vision(self):
         hand_base_options = python.BaseOptions(model_asset_path=self.hand_task_path)
         pose_base_options = python.BaseOptions(model_asset_path=self.pose_task_path)
@@ -62,6 +65,7 @@ class Model:
         # create detectors
         self.hand_detector = vision.HandLandmarker.create_from_options(hand_options)
         self.pose_detector = vision.PoseLandmarker.create_from_options(pose_options)
+
 
     def extract_landmark(
         self,
@@ -91,6 +95,7 @@ class Model:
 
         return np.concatenate([pose_landmark, hand_landmark.flatten()])
 
+
     def process_frame(self, frame: int, image: np.ndarray):
         # convert into mediapipe numpy type support uint8, uint16, or float32
         image = image.astype(np.uint8)
@@ -105,22 +110,37 @@ class Model:
 
         return frame, landmarks
 
+
     @staticmethod
     def format_timestamp(sec: float) -> str:
-        hours = int(sec // 3600)
-        minutes = int((sec % 3600) // 60)
-        seconds = int(sec % 60)
+        # hours = int(sec // 3600)
+        # minutes = int((sec % 3600) // 60)
+        # seconds = int(sec % 60)
 
-        # introduce some randomness to milliseconds
-        milliseconds = (sec - seconds) * 999
-        milliseconds = int(
-            min(999, milliseconds)
-        )  # ensure milliseconds are within valid range
+        # # introduce some randomness to milliseconds
+        # milliseconds = (sec - seconds) * 999
+        # milliseconds = int(
+        #     min(999, milliseconds)
+        # )  # ensure milliseconds are within valid range
+
+        # return f"{hours:02}:{minutes:02}:{seconds:02}:{milliseconds:03}"
+
+        # Calculate hours, minutes, and seconds
+        td = datetime.timedelta(seconds=sec)
+        total_seconds = int(td.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        # Calculate milliseconds from the fractional part of seconds
+        milliseconds = int((sec - int(sec)) * 1000)
 
         return f"{hours:02}:{minutes:02}:{seconds:02}:{milliseconds:03}"
 
+
+
     def process_video(self, video: str):
         clip = VideoFileClip(video)
+
         vfps = clip.fps
 
         # store all predicted sign acted
@@ -157,6 +177,8 @@ class Model:
                 frame, landmarks = future.result()
 
                 frames.append((frame, landmarks))
+
+        clip.close()
 
         # sort the results by frame number
         # to ensure the order of the frame is correct
@@ -200,7 +222,7 @@ class Model:
         sentences = [
             {
                 "text": self.ACTIONS[motion[0]],
-                "timestamp_video": motion[1],
+                "timestamp": motion[1],
             }
             for motion in predictions
         ]

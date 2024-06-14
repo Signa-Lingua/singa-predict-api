@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 from dotenv import load_dotenv
 # from typing import Union
@@ -32,21 +33,12 @@ def predict(
     video: UploadFile = File(media_type=["video/mp4", "video/x-m4v", "video/*"])
 ):
     try:
-        # with tempfile.NamedTemporaryFile() as tmp_file:
-        #     tmp_file.write(video.file.read())
-        #     print(f"This is the temp file path: {tmp_file.name}")
-        #     lm = load_model()
-        #     result = lm.predict_v(tmp_file.name)
-        #     tmp_file.close()
-
-        with open("./videos/file.mp4", "wb") as f:
-            f.write(video.file.read())
-
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_file.write(video.file.read())
+            print(f"This is the temp file path: {tmp_file.name}")
+            tmp_file.close()
             lm = model()
-
-            result = lm.process_video("./videos/file.mp4")
-
-            f.close()
+            result = lm.process_video(tmp_file.name)
 
         return JSONResponse(
             content={
@@ -61,6 +53,9 @@ def predict(
             content={"error": True, "message": "Prediction failed!", "data": str(e)},
             status_code=500,
         )
+    finally:
+        if os.path.exists(tmp_file.name):
+            os.remove(tmp_file.name)
 
 
 @app.post("/init")
