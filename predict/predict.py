@@ -14,11 +14,12 @@ from tensorflow.keras.models import load_model  # type: ignore
 class Model:
     def __init__(self, model_path: str):
         self.ACTIONS = np.array([
-                "_", "hello", "thanks", "i-love-you",
-                "I", "Yes", "No", "Help",
-                "Please", "Want", "Eat", "More",
-                "Bathroom", "Learn", "Sign",
-        ])[:8]
+            "_", "hello", "what's up", "how",
+            "thanks", "you", "morning", "afternoon",
+            "night", "me", "name", "fine",
+            "happy", "yes", "no", "repeat",
+            "please", "want", "good bye", "learn",
+        ])
 
         self.VisionRunningMode = mp.tasks.vision.RunningMode
 
@@ -48,7 +49,7 @@ class Model:
             num_hands=2,
             min_hand_detection_confidence=0.6,
             min_hand_presence_confidence=0.6,
-            min_tracking_confidence=0.6,
+            min_tracking_confidence=0.1,
             running_mode=self.VisionRunningMode.IMAGE,
         )
 
@@ -58,7 +59,7 @@ class Model:
             output_segmentation_masks=True,
             min_pose_detection_confidence=0.6,
             min_pose_presence_confidence=0.6,
-            min_tracking_confidence=0.6,
+            min_tracking_confidence=0.1,
             running_mode=self.VisionRunningMode.IMAGE,
         )
 
@@ -130,7 +131,7 @@ class Model:
         total_seconds = int(td.total_seconds())
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
-        
+
         # Calculate milliseconds from the fractional part of seconds
         milliseconds = int((sec - int(sec)) * 1000)
 
