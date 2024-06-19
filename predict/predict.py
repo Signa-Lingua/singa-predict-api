@@ -1,8 +1,5 @@
 import concurrent.futures
 import datetime
-
-# import random
-
 import mediapipe as mp
 import numpy as np
 from mediapipe.framework.formats import landmark_pb2
@@ -34,7 +31,7 @@ class Model:
         self.empty_pose_landmark = np.zeros(33 * 3)
 
         self.batch_size = 60
-        self.threshold = 0.95
+        self.threshold = 0.99
 
         self.model = load_model(model_path)
 
