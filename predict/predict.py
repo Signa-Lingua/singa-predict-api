@@ -1,7 +1,5 @@
 import concurrent.futures
 import datetime
-# import random
-
 import mediapipe as mp
 import numpy as np
 from mediapipe.framework.formats import landmark_pb2
@@ -32,13 +30,12 @@ class Model:
         self.empty_hand_landmark = np.zeros((2, 21, 3))
         self.empty_pose_landmark = np.zeros(33 * 3)
 
-        self.video_frame = 30
-        self.threshold = 0.5
+        self.batch_size = 60
+        self.threshold = 0.99
 
         self.model = load_model(model_path)
 
         self.init_task_vision()
-
 
     def init_task_vision(self):
         hand_base_options = python.BaseOptions(model_asset_path=self.hand_task_path)
@@ -66,7 +63,6 @@ class Model:
         # create detectors
         self.hand_detector = vision.HandLandmarker.create_from_options(hand_options)
         self.pose_detector = vision.PoseLandmarker.create_from_options(pose_options)
-
 
     def extract_landmark(
         self,
@@ -96,8 +92,9 @@ class Model:
 
         return np.concatenate([pose_landmark, hand_landmark.flatten()])
 
-
     def process_frame(self, frame: int, image: np.ndarray):
+        image = np.fliplr(image)
+
         # convert into mediapipe numpy type support uint8, uint16, or float32
         image = image.astype(np.uint8)
 
@@ -111,33 +108,18 @@ class Model:
 
         return frame, landmarks
 
-
     @staticmethod
     def format_timestamp(sec: float) -> str:
-        # hours = int(sec // 3600)
-        # minutes = int((sec % 3600) // 60)
-        # seconds = int(sec % 60)
-
-        # # introduce some randomness to milliseconds
-        # milliseconds = (sec - seconds) * 999
-        # milliseconds = int(
-        #     min(999, milliseconds)
-        # )  # ensure milliseconds are within valid range
-
-        # return f"{hours:02}:{minutes:02}:{seconds:02}:{milliseconds:03}"
-
-        # Calculate hours, minutes, and seconds
+        # calculate hours, minutes, and seconds
         td = datetime.timedelta(seconds=sec)
         total_seconds = int(td.total_seconds())
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
 
-        # Calculate milliseconds from the fractional part of seconds
+        # calculate milliseconds from the fractional part of seconds
         milliseconds = int((sec - int(sec)) * 1000)
 
         return f"{hours:02}:{minutes:02}:{seconds:02}:{milliseconds:03}"
-
-
 
     def process_video(self, video: str):
         clip = VideoFileClip(video)
@@ -158,11 +140,7 @@ class Model:
         sequences = []
 
         # banned word
-        skip_word = [0]  # "_"
-
-        # total sequences length to be able to be
-        # predicted by the model
-        batch_size = 60
+        skip_word = "_"
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_to_frame = {
@@ -188,44 +166,48 @@ class Model:
         for frame, landmarks in frames:
             sequences.append(landmarks)
 
-            if len(sequences) < batch_size:
+            if len(sequences) < self.batch_size:
                 continue
 
-            # collect a batch of sequences
-            batch_motion = sequences[-batch_size:]
-
-            sequences = sequences[
-                -(batch_size - 50) :
-            ]  # keep the last 10 sequences for overlap
-
             # ensure correct input shape by adding an extra dimension for batch size
-            batch_motion = np.expand_dims(batch_motion, axis=0)
+            batch_motion = np.expand_dims(
+                np.stack(sequences[-self.batch_size :]), axis=0
+            )
 
-            # predict the entire batch
-            batch_result = self.model.predict(batch_motion, verbose=0)
+            # predict the motion
+            result = self.model.predict(batch_motion, verbose=0)[0]
 
-            for result in batch_result:
-                predicted = np.argmax(result)
+            # get the predicted class and its confidence
+            predicted = np.argmax(result)
+            confidence = result[predicted]
 
-                if (not result[predicted] > self.threshold) or not (
-                    predicted not in skip_word
-                ):
-                    continue
+            # append to the predictions and accuracies list
+            predictions.append(predicted)
 
-                if predictions and predicted == predictions[-1][0]:
-                    continue
+            # only keep the last 20 predictions and their accuracies
+            predictions = predictions[-20:]
 
+            predicted_sentence = self.ACTIONS[predicted]
+
+            # determine most frequent prediction
+            most_frequent_prediction = np.bincount(predictions[-10:]).argmax()
+
+            if most_frequent_prediction != predicted:
+                continue
+
+            elif confidence < self.threshold:
+                continue
+
+            elif predicted_sentence == skip_word:
+                continue
+
+            elif not sentences or predicted_sentence != sentences[-1]["text"]:
                 current_time_seconds = frame / vfps
-                current_time_formatted = self.format_timestamp(current_time_seconds)
+                current_time = self.format_timestamp(current_time_seconds)
 
-                predictions.append((predicted, current_time_formatted))
-
-        sentences = [
-            {
-                "text": self.ACTIONS[motion[0]],
-                "timestamp": motion[1],
-            }
-            for motion in predictions
-        ]
+                sentences.append({
+                    "text": self.ACTIONS[predicted],
+                    "timestamp": current_time,
+                })
 
         return sentences
