@@ -5,6 +5,7 @@
 - Python
 - Tensorflow
 - Mediapipe
+- FastAPI
 
 ## API Documentation
 
