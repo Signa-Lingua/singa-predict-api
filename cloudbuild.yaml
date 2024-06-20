@@ -41,6 +41,12 @@ steps:
         '--allow-unauthenticated',
         '--port',
         $_CUSTOM_PORT,
+        '--ingress',
+        'internal',
+        '--vpc-connector',
+        $_VPC_CONNECTOR,
+        '--vpc-egress',
+        'private-ranges-only',
         '--service-account',
         $SERVICE_ACCOUNT_EMAIL,
         # Set required env
@@ -66,6 +72,8 @@ substitutions:
   _MODEL_NAME: your-model-name
   _SERVICE_ACCOUNT: your-sa-for-build
   _LOGBUCKET_NAME: your-log-bucket-name
+  _VPC_CONNECTOR: your-vpc-connector
+
 options:
   logging: GCS_ONLY
   dynamicSubstitutions: true
