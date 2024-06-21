@@ -119,7 +119,7 @@ class Model:
         # calculate milliseconds from the fractional part of seconds
         milliseconds = int((sec - int(sec)) * 1000)
 
-        return f"{hours:02}:{minutes:02}:{seconds:02}:{milliseconds:03}"
+        return f"{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}"
 
     def process_video(self, video: str):
         clip = VideoFileClip(video)
