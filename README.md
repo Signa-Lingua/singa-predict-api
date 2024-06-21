@@ -57,7 +57,7 @@ cd singa-predict-api
 <summary>Do it manually from gcloud CLI</summary>
 
 ```sh
-gcloud builds submit --substitutions _VPC_CONNECTOR=<your-vpc-connector>,_SERVICE_ACCOUNT=<your-service-account>,_LOGBUCKET=<your-log-bucket-name>
+gcloud builds submit --substitutions _VPC_CONNECTOR=<your-vpc-connector>,_MODEL_NAME=<your-model-name>,_SERVICE_ACCOUNT=<your-service-account>,_LOGBUCKET_NAME=<your-log-bucket-name>
 ```
 
 </details>
